@@ -13,7 +13,7 @@
    {:articles []
     :total 0
     :current-page 1
-    :page-size 10
+    :page-size 5
     :keywords ""
     :loading? false}))
 
@@ -21,6 +21,21 @@
  :articles
  (fn [db _]
    (:articles db)))
+
+(rf/reg-sub
+ :total
+ (fn [db _]
+   (:total db)))
+
+(rf/reg-sub
+ :current-page
+ (fn [db _]
+   (:current-page db)))
+
+(rf/reg-sub
+ :page-size
+ (fn [db _]
+   (:page-size db)))
 
 (rf/reg-sub
  :loading?
@@ -33,7 +48,22 @@
    (:keywords db)))
 
 (rf/reg-event-db
- :loaded
+ :set-current-page
+ (fn [db [_ n]]
+   (assoc db :current-page n)))
+
+(rf/reg-event-db
+ :set-page-size
+ (fn [db [_ n]]
+   (assoc db :page-size n)))
+
+(rf/reg-event-db
+ :set-total
+ (fn [db [_ n]]
+   (assoc db :total n)))
+
+(rf/reg-event-db
+ :set-loaded-status
  (fn [db [_ status]]
    (assoc db :loading? status)))
 
@@ -55,35 +85,40 @@
 ;; Effects
 (rf/reg-fx
  :search-articles
- (fn [[keywords page]]
+ (fn [[keywords page size]]
    (go
-     (rf/dispatch [:loaded true])
+     (rf/dispatch [:set-loaded-status true])
      (let [_ (<! (http/get "http://localhost:3000/find"
-                          {:query-params {:word keywords
-                                        :page page}}))
+                           {:query-params {:word keywords}}))
            response (<! (http/get "http://localhost:3000/articles"
-                                {:query-params {:word keywords
-                                              :page page}}))
-           articles (js/JSON.parse (:body response))]
-       (rf/dispatch [:loaded false])
-       (rf/dispatch [:articles-loaded articles])))))
+                                  {:query-params {:word keywords
+                                                  :page page
+                                                  :size size}}))
+           articles (-> response
+                        :body
+                        js/JSON.parse)]
+       (rf/dispatch [:set-loaded-status false])
+       (rf/dispatch [:set-total (.-total articles)])
+       (rf/dispatch [:articles-loaded (.-articles articles)])))))
 
 ;; Event Handlers
 (rf/reg-event-fx
  :search-articles
- (fn [_ [_ {:keys [keywords page]}]]
-   {:search-articles [keywords page]}))
+ (fn [_ [_ {:keys [keywords page size]}]]
+   {:search-articles [keywords page size]}))
 
 ;; Views
 (defn search-form []
-  (let [keywords (rf/subscribe [:keywords])]
+  (let [keywords  (rf/subscribe [:keywords])
+        page-size (rf/subscribe [:page-size])]
     [:div.card.mb-4
      [:div.card-body
       [:form
        {:on-submit (fn [e]
-                    (rf/dispatch [:loaded true])
+                    (rf/dispatch [:set-loaded-status true])
                     (rf/dispatch [:search-articles {:keywords @keywords
-                                                    :page 1}])
+                                                    :page 1
+                                                    :size @page-size}])
                     (.preventDefault e))}
        [:div.mb-3
         [:label.form-label "Search Keywords"]
@@ -95,9 +130,33 @@
         {:type "submit"}
         "Search"]]]]))
 
+(defn links
+  []
+  (let [total        (rf/subscribe [:total])
+        keywords     (rf/subscribe [:keywords])
+        current-page (rf/subscribe [:current-page])
+        page-size    (rf/subscribe [:page-size])
+        total-links  (int (Math/ceil (/ @total @page-size)))
+        links-nums   (range 1 (inc total-links))]
+    [:nav {:aria-label "Page navigation"}
+     (->> links-nums
+          (mapv (fn [page-num]
+                  [:li.page-item {:class (when (= page-num @current-page) "active")}
+                   [:a.page-link {:href     "#"
+                                  :on-click #(do (.preventDefault %)
+                                                 (rf/dispatch [:set-current-page page-num])
+                                                 (rf/dispatch [:set-loaded-status true])
+                                                 (rf/dispatch [:search-articles {:keywords @keywords
+                                                                                 :page @current-page
+                                                                                 :size @page-size}]))}
+                    page-num]]))
+          (apply conj [:ul.pagination]))]))
+
 (defn article-list []
-  (let [articles (rf/subscribe [:articles])
-        _ (println articles)]
+  (let [articles     (rf/subscribe [:articles])
+        total        (rf/subscribe [:total])
+        current-page (rf/subscribe [:current-page])
+        page-size    (rf/subscribe [:page-size])]
     [:div.table-responsive
      [:table.table
       [:thead
@@ -113,7 +172,8 @@
                     [:td (.-author article)]
                     [:td (.-date article)]
                     [:td (.-doi article)]]))
-           (apply conj [:tbody]))]]))
+           (apply conj [:tbody]))
+      [links]]]))
 
 (defn main-panel []
   (let [loading? (rf/subscribe [:loading?])]

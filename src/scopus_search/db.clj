@@ -120,7 +120,8 @@
   (associate-keywords keywords (filter-duplicates articles)))
 
 (defn get-articles [keywords page size]
-  (let [n        (count keywords)
+  (let [n         (count keywords)
+        offset    (* (dec page) size)
         in-clause (clojure.string/join "," (repeat n "?"))
         sql (str "SELECT a.title, a.author, a.date, a.doi
                   FROM articles a
@@ -130,5 +131,26 @@
                         GROUP BY k.id
                         HAVING COUNT(DISTINCT k.query) = ?)
                       matching_ids
-                  ON a.id = matching_ids.id")]
-    (jdbc/query db-spec (into [sql] (conj keywords n)))))
+                  ON a.id = matching_ids.id
+                  LIMIT  ?
+                  OFFSET ?")]
+    (jdbc/query db-spec (into [sql] (concat keywords [n size offset])))))
+
+(defn get-total [keywords]
+  (let [n         (count keywords)
+        in-clause (clojure.string/join "," (repeat n "?"))
+        sql (str "SELECT count(a.id) total
+                  FROM articles a
+                  JOIN (SELECT k.id
+                        FROM keywords k
+                        WHERE k.query IN (" in-clause ")
+                        GROUP BY k.id
+                        HAVING COUNT(DISTINCT k.query) = ?)
+                               matching_ids
+                        ON a.id = matching_ids.id")]
+    (->> n
+         (conj keywords)
+         (into [sql])
+         (jdbc/query db-spec)
+         first
+         :total)))

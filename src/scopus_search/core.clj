@@ -14,8 +14,7 @@
             [clojure.pprint :as pp]))
 
 (defn search-handler [request]
-  (let [_ (println request)
-        keywords (some-> request
+  (let [keywords (some-> request
                          (get-in [:params "word"])
                          (str/split #",")
                          (as-> x (mapv str/trim x)))]
@@ -24,7 +23,7 @@
         (let [results (api/search-scopus keywords)
               _       (db/save-articles keywords results)]
           {:status 200
-           :body {:message "Search completed successfully"}})
+           :body results})
         (throw (ex-info "Empty search")))
       (catch Exception e
         {:status 500
@@ -32,16 +31,18 @@
 
 (defn articles-handler [request]
   (let [page (Integer/parseInt (get-in request [:params "page"] "1"))
-        size (Integer/parseInt (get-in request [:params "size"] "10"))
+        size (Integer/parseInt (get-in request [:params "size"] "5"))
         keywords (some-> request
                          (get-in [:params "word"])
                          (str/split #",")
                          (as-> x (mapv str/trim x)))]
     (try
       (if keywords
-        (let [articles (db/get-articles keywords page size)]
+        (let [articles (db/get-articles keywords page size)
+              total    (db/get-total keywords)]
           {:status 200
-           :body articles})
+           :body {:articles articles
+                  :total total}})
         {:status 200
          :body nil})
       (catch Exception e
