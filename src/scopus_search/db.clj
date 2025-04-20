@@ -5,8 +5,8 @@
 
 (def db-spec
   {:classname "org.sqlite.JDBC"
-   :subprotocol "sqlite"
-   :subname "scopus.db"})
+    :subprotocol "sqlite"
+    :subname "scopus.db"})
 
 (defn table-exists? []
   (try
@@ -17,6 +17,7 @@
 
 (defn init-db []
   (do
+    (table-exists?)
     (jdbc/db-do-commands
      db-spec
      (jdbc/create-table-ddl
@@ -25,7 +26,8 @@
        [:title :text]
        [:author :text]
        [:date :text]
-       [:doi :text]]))
+       [:doi :text]
+       [:tx_id "CHAR(36)"]]))
     (jdbc/db-do-commands
      db-spec
      (jdbc/create-table-ddl
@@ -38,15 +40,6 @@
   (jdbc/execute! db-spec ["DROP TABLE keywords"])
   (init-db) )
 
-(defn filter-duplicates
-  [articles]
-  (let [ids (mapv :id articles)
-        placeholders (clojure.string/join "," (repeat (count ids) "?"))
-        sql (str "SELECT id FROM articles WHERE id IN (" placeholders ")")
-        res (jdbc/query db-spec (into [sql] ids))
-        pred (set (mapv :id res))]
-   (remove (fn [{id :id}] (pred id)) articles)))
-
 (defn associate-keywords [keywords results]
   (vec (mapcat (fn [kwd]
                  (map #(assoc {} :query kwd
@@ -54,13 +47,31 @@
                        (mapv :id results)))
                keywords)))
 
+(defn insert-ignore-multi! [table rows]
+  (when (seq rows)
+    (let [columns (->> rows
+                       first
+                       keys
+                       (mapv name))
+          sql (format "INSERT INTO %s (%s) VALUES %s ON CONFLICT(id) DO NOTHING"
+                      (name table)
+                      (str/join ", " columns)
+                      (str/join ", " (repeat (count rows)
+                                             (str "("
+                                                  (str/join ", " (repeat (count columns) "?"))
+                                                  ")"))))
+          values (mapcat vals rows)]
+      (jdbc/execute! db-spec (into [sql] values)))))
+
 (defn save-articles [keywords articles]
-  (let [dedup-articles (filter-duplicates articles)
-        queries        (associate-keywords keywords dedup-articles)]
-    (when (seq dedup-articles)
-      (jdbc/with-db-transaction [tx db-spec]
-        (jdbc/insert-multi! tx :articles articles)
-        (jdbc/insert-multi! tx :keywords queries)))))
+  (let [tx-id (str (random-uuid))
+        _ (->> articles
+               (mapv #(assoc % :tx_id tx-id))
+               (insert-ignore-multi! :articles))
+        ids     (jdbc/query db-spec ["SELECT id FROM articles WHERE tx_id = ?" tx-id])
+        queries (associate-keywords keywords ids)]
+    (jdbc/with-db-transaction [tx db-spec]
+      (jdbc/insert-multi! tx :keywords queries))))
 
 (comment
   (def keywords ["giant shrimp" "ocean"])
@@ -134,7 +145,7 @@
                   ON a.id = matching_ids.id
                   LIMIT  ?
                   OFFSET ?")]
-    (jdbc/query db-spec (into [sql] (concat keywords [n size offset])))))
+    (vec (jdbc/query db-spec (into [sql] (concat keywords [n size offset]))))))
 
 (defn get-total [keywords]
   (let [n         (count keywords)

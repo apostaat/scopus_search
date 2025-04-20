@@ -45,10 +45,12 @@
                      date
                      doi)))})
 
-(def cache (atom (clojure.edn/read-string (slurp (io/resource "cache.edn")))))
+(def cache (atom {}))
 
 (defn search-scopus [query]
-  (let [cached-response (get @cache query)
+  (let [;; _ (pp/pprint ["entered search scopus with: " query])
+        cached-response (get @cache query)
+        ;; _ (pp/pprint ["entered search scopus with: " query])
         response (or cached-response
                      (-> scopus-base-url
                          (http/get {:query-params {"query" query
@@ -56,7 +58,10 @@
                                                    "count" 10}
                                     :as :json})
                          (get-in [:body :search-results :entry])))
-        _ (when (not cached-response)
-            (swap! cache assoc query (mapv parse-article response))
-            (spit (io/resource "cache.edn") @cache))]
-    (mapv parse-article response)))
+        ;; _ (pp/pprint ["got value from scopus: " response])
+        res (mapv parse-article response)
+        ;; _ (pp/pprint ["parsed:  " res])
+        _ (swap! cache assoc query res)
+        ;; _ (pp/pprint ["cached:  " res])
+        ]
+    res))

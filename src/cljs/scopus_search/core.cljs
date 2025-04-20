@@ -94,12 +94,11 @@
                                   {:query-params {:word keywords
                                                   :page page
                                                   :size size}}))
-           articles (-> response
-                        :body
-                        js/JSON.parse)]
+           parsed-js (js/JSON.parse (:body response))
+           parsed-clj (js->clj parsed-js :keywordize-keys true)]
        (rf/dispatch [:set-loaded-status false])
-       (rf/dispatch [:set-total (.-total articles)])
-       (rf/dispatch [:articles-loaded (.-articles articles)])))))
+       (rf/dispatch [:set-total (:total parsed-clj)])
+       (rf/dispatch [:articles-loaded (:articles parsed-clj)])))))
 
 ;; Event Handlers
 (rf/reg-event-fx
@@ -167,11 +166,11 @@
         [:th "DOI"]]]
       (->> @articles
            (mapv (fn [article]
-                   [:tr {:key (.-doi article)}
-                    [:td (.-title article)]
-                    [:td (.-author article)]
-                    [:td (.-date article)]
-                    [:td (.-doi article)]]))
+                   [:tr {:key (:doi article)}
+                    [:td (:title article)]
+                    [:td (:author article)]
+                    [:td (:date article)]
+                    [:td (:doi article)]]))
            (apply conj [:tbody]))
       [links]]]))
 

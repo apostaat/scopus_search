@@ -11,7 +11,9 @@
             [scopus-search.api :as api]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.pprint :as pp])
+            [clojure.pprint :as pp]
+            [clojure.java.jdbc :as jdbc]
+            )
   (:gen-class))
 
 (defn search-handler [request]
@@ -22,7 +24,10 @@
     (try
       (if keywords
         (let [results (api/search-scopus keywords)
-              _       (db/save-articles keywords results)]
+              ;; _ (pp/pprint ["results: " results])
+              _ (db/save-articles keywords results)
+              ;; _ (pp/pprint ["results: " (jdbc/query db/db-spec ["SELECT * FROM articles"])])
+              ]
           {:status 200
            :body results})
         (throw (ex-info "Empty search")))
