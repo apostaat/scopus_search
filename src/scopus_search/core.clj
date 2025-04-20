@@ -11,7 +11,8 @@
             [scopus-search.api :as api]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.pprint :as pp]))
+            [clojure.pprint :as pp])
+  (:gen-class))
 
 (defn search-handler [request]
   (let [keywords (some-> request
@@ -68,17 +69,20 @@
       (json/wrap-json-body {:keywords? true})
       (params/wrap-params)))
 
-(defonce server (atom nil))
+(comment
+  (defonce server (atom nil))
+  (defn start! []
+    (future (reset! server (jetty/run-jetty app {:port 3000}))))
 
-(defn start! []
-  (future (reset! server (jetty/run-jetty app {:port 3000}))))
+  (defn stop! []
+    (reset! server nil))
 
-(defn stop! []
-  (reset! server nil))
 
-(comment (start!)
-         (stop!))
+  (start!)
+  (stop!))
 
 (defn -main [& args]
   (db/init-db)
-  (jetty/run-jetty app {:port 3000}))
+  (let [port (Integer/parseInt (or (System/getenv "PORT") "3000"))
+        host (or (System/getenv "HOST") "0.0.0.0")]
+    (jetty/run-jetty app {:port port :host host})))

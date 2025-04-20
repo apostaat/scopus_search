@@ -1,8 +1,7 @@
 (ns scopus-search.db
   (:require [clojure.java.jdbc :as jdbc]
             [clojure.string :as str]
-            [honey.sql :as sql]
-            [scopus-search.api :as api]))
+            [honey.sql :as sql]))
 
 (def db-spec
   {:classname "org.sqlite.JDBC"
@@ -18,8 +17,6 @@
 
 (defn init-db []
   (do
-    (jdbc/execute! db-spec ["DROP TABLE articles"])
-    (jdbc/execute! db-spec ["DROP TABLE keywords"])
     (jdbc/db-do-commands
      db-spec
      (jdbc/create-table-ddl
@@ -36,7 +33,10 @@
       [[:id "CHAR(32)"]
        [:query :text]]))))
 
-(comment (init-db) )
+(comment
+  (jdbc/execute! db-spec ["DROP TABLE articles"])
+  (jdbc/execute! db-spec ["DROP TABLE keywords"])
+  (init-db) )
 
 (defn filter-duplicates
   [articles]
