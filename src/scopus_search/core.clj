@@ -12,48 +12,71 @@
             [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.pprint :as pp]
-            [clojure.java.jdbc :as jdbc]
-            )
+            [clojure.java.jdbc :as jdbc])
   (:gen-class))
 
+(defn dispatch-query-type
+  [query]
+  (if (coll? query)
+    query
+    (str/split query #",")))
+
+(defn parse-params
+  [request]
+  (let [query (-> (get-in request [:params "word"])
+                  not-empty)]
+    (some->> query
+             dispatch-query-type
+             (mapv str/trim)
+             (filterv not-empty)
+             seq
+             vec)))
+
 (defn search-handler [request]
-  (let [keywords (some-> request
-                         (get-in [:params "word"])
-                         (str/split #",")
-                         (as-> x (mapv str/trim x)))]
-    (try
-      (if keywords
-        (let [results (api/search-scopus keywords)
-              ;; _ (pp/pprint ["results: " results])
-              _ (db/save-articles keywords results)
-              ;; _ (pp/pprint ["results: " (jdbc/query db/db-spec ["SELECT * FROM articles"])])
-              ]
-          {:status 200
-           :body results})
-        (throw (ex-info "Empty search")))
-      (catch Exception e
+  (try
+    (if-let  [{req-status   :status
+               keywords     :query
+               articles     :data :as results}
+              (some-> request
+                      parse-params
+                      (api/search-scopus))]
+      (if (= :success req-status)
+        (do (db/save-articles keywords articles)
+            {:status 200
+             :body results})
         {:status 500
-         :body {:error (.getMessage e)}}))))
+         :body results})
+      {:status 500
+       :body {:status :error
+              :error-type :user-input-error
+              :error "Empty search"}})
+    (catch Exception e
+      {:status 500
+       :body {:status :error
+              :error-type :unexpected
+              :error (.getMessage e)}})))
 
 (defn articles-handler [request]
-  (let [page (Integer/parseInt (get-in request [:params "page"] "1"))
-        size (Integer/parseInt (get-in request [:params "size"] "5"))
-        keywords (some-> request
-                         (get-in [:params "word"])
-                         (str/split #",")
-                         (as-> x (mapv str/trim x)))]
-    (try
+  (try
+    (let [page (Integer/parseInt (get-in request [:params "page"] "1"))
+          size (Integer/parseInt (get-in request [:params "size"] "5"))
+          keywords (parse-params request)]
       (if keywords
         (let [articles (db/get-articles keywords page size)
               total    (db/get-total keywords)]
           {:status 200
-           :body {:articles articles
-                  :total total}})
-        {:status 200
-         :body nil})
-      (catch Exception e
+           :body {:data {:articles articles
+                         :total total}
+                  :status :success}})
         {:status 500
-         :body {:error (.getMessage e)}}))))
+         :body {:status :error
+                :error-type :user-input-error
+                :message "Empty search"}}))
+    (catch Exception e
+      {:status 500
+       :body {:status :error
+              :error-type :unexpected
+              :message (.getMessage e)}})))
 
 (defn index-html-handler
   [req]
@@ -81,8 +104,6 @@
 
   (defn stop! []
     (reset! server nil))
-
-
   (start!)
   (stop!))
 

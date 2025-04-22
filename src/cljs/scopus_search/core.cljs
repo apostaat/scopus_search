@@ -3,7 +3,8 @@
             [reagent.dom :as dom]
             [re-frame.core :as rf]
             [cljs-http.client :as http]
-            [cljs.core.async :refer [<!]])
+            [cljs.core.async :refer [<!]]
+            [clojure.string :as str])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
 ;; Events
@@ -15,7 +16,9 @@
     :current-page 1
     :page-size 5
     :keywords ""
-    :loading? false}))
+    :loading? false
+    :error []
+    :warning []}))
 
 (rf/reg-sub
  :articles
@@ -47,6 +50,16 @@
  (fn [db _]
    (:keywords db)))
 
+(rf/reg-sub
+ :error
+ (fn [db _]
+   (:error db)))
+
+(rf/reg-sub
+ :warning
+ (fn [db _]
+   (:warning db)))
+
 (rf/reg-event-db
  :set-current-page
  (fn [db [_ n]]
@@ -77,10 +90,45 @@
  (fn [db [_ new-val]]
    (assoc db :keywords new-val)))
 
+(rf/reg-event-db
+ :set-error
+ (fn [db [_ error-msg]]
+   (update db :error conj error-msg)))
+
+(rf/reg-event-db
+ :set-warning
+ (fn [db [_ error-msg]]
+   (update db :warning conj error-msg)))
+
+(rf/reg-event-db
+ :reset-error-warning
+ (fn [db _] (assoc db :warning []
+                      :error   [])))
+
 (rf/reg-sub
  :search-keywords
  (fn [db _]
    (:search-keywords db)))
+
+(defn parse-json
+  [response]
+  (-> response
+      :body
+      js/JSON.parse
+      (js->clj :keywordize-keys true)))
+
+(defn dispatch-empty-record
+  [data]
+  (when (and (= 1 (:total data))
+             (every? #{"N/A"} (vals (first (:articles data)))))
+    (rf/dispatch [:set-warning "No records returned for request"])))
+
+(defn dispatch-success
+  [data]
+  (dispatch-empty-record data)
+  (rf/dispatch [:set-loaded-status false])
+  (rf/dispatch [:set-total (:total data)])
+  (rf/dispatch [:articles-loaded (:articles data)]))
 
 ;; Effects
 (rf/reg-fx
@@ -88,17 +136,35 @@
  (fn [[keywords page size]]
    (go
      (rf/dispatch [:set-loaded-status true])
-     (let [_ (<! (http/get "http://localhost:3000/find"
-                           {:query-params {:word keywords}}))
+     (let [find-req (<! (http/get "http://localhost:3000/find"
+                            {:query-params {:word keywords}}))
+
            response (<! (http/get "http://localhost:3000/articles"
                                   {:query-params {:word keywords
                                                   :page page
                                                   :size size}}))
-           parsed-js (js/JSON.parse (:body response))
-           parsed-clj (js->clj parsed-js :keywordize-keys true)]
-       (rf/dispatch [:set-loaded-status false])
-       (rf/dispatch [:set-total (:total parsed-clj)])
-       (rf/dispatch [:articles-loaded (:articles parsed-clj)])))))
+
+           {data     :data
+            status   :status
+            :as resp}
+           (parse-json response)
+
+           {find-status :status
+            :as resp2}
+           (parse-json find-req)]
+
+       (cond (= "error" status)
+             (do (rf/dispatch [:set-loaded-status false])
+                 (rf/dispatch [:set-error resp]))
+             
+             (and (= "success" status)
+                  (= "error" find-status))
+             (do (rf/dispatch [:set-warning "Scopus API request failed. Giving output from internal sources."])
+                 (dispatch-success data))
+
+             (= "success" status)
+             (dispatch-success data))))))
+
 
 ;; Event Handlers
 (rf/reg-event-fx
@@ -114,6 +180,7 @@
      [:div.card-body
       [:form
        {:on-submit (fn [e]
+                    (rf/dispatch [:reset-error-warning nil])
                     (rf/dispatch [:set-loaded-status true])
                     (rf/dispatch [:search-articles {:keywords @keywords
                                                     :page 1
@@ -151,6 +218,16 @@
                     page-num]]))
           (apply conj [:ul.pagination]))]))
 
+(defn warning-message [message]
+  [:div.alert.alert-warning.mt-3
+   [:strong "Warning: "]
+   [:span message]])
+
+(defn error-message [{error-type :error-type msg :message}]
+  [:div.alert.alert-danger.mt-3
+   [:strong (str (str/capitalize error-type) " error: ")]
+   [:p msg]])
+
 (defn article-list []
   (let [articles     (rf/subscribe [:articles])
         total        (rf/subscribe [:total])
@@ -175,10 +252,24 @@
       [links]]]))
 
 (defn main-panel []
-  (let [loading? (rf/subscribe [:loading?])]
+  (let [loading? (rf/subscribe [:loading?])
+        articles (rf/subscribe [:articles])
+        error    (rf/subscribe [:error])
+        warning  (rf/subscribe [:warning])]
     [:div.container.mt-4
      [:h1 "Scopus Search"]
      [search-form]
+
+     (when (seq @warning)
+       (->> @warning
+            (mapv warning-message)
+            (apply conj [:div.warnings])))
+
+     (when (seq @error)
+       (->> @error
+            (mapv error-message)
+            (apply conj [:div.errors])))
+
      (if @loading?
        [:div.text-center
         [:div.spinner-border {:role "status"}
