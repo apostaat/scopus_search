@@ -17,7 +17,11 @@
                  [cljs-http "0.1.46"]
                  [clj-http "3.12.3"]
                  [com.github.seancorfield/honeysql "2.7.1295"]]
+  :plugins [[lein-with-env-vars "0.1.0"]]
+  :env-vars {:SCOPUS_BASE_URL "https://api.elsevier.com/content/search/scopus"
+             :SCOPUS_API_KEY "26d73caa33ea88eb113539ac40678a4b"}
   :main ^:skip-aot scopus-search.core
+
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
                        :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}

@@ -2,6 +2,12 @@ FROM clojure:lein AS builder
 
 WORKDIR /app
 
+ARG SCOPUS_API_KEY
+ARG SCOPUS_BASE_URL
+
+ENV SCOPUS_API_KEY=${SCOPUS_API_KEY}
+ENV SCOPUS_BASE_URL=${SCOPUS_BASE_URL}
+
 RUN apt-get update && apt-get install -y curl gnupg \
  && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
  && apt-get install -y nodejs \
@@ -28,5 +34,7 @@ EXPOSE 3449
 
 ENV PORT=3000
 ENV HOST=0.0.0.0
+ENV SCOPUS_API_KEY=${SCOPUS_API_KEY}
+ENV SCOPUS_BASE_URL=${SCOPUS_BASE_URL}
 
 ENTRYPOINT ["java", "-jar", "scopus-search.jar"]

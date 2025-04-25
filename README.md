@@ -4,7 +4,7 @@ This application allows users to search for scientific publications using keywor
 
 To run the application: 
 
-```make up```
+```SCOPUS_API_KEY="26d73caa33ea88eb113539ac40678a4b" SCOPUS_BASE_URL="https://api.elsevier.com/content/search/scopus" make up```
 
 ## API Implementation
 

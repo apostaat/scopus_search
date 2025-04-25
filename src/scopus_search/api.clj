@@ -5,8 +5,11 @@
   (:import [java.security MessageDigest]
            [java.math BigInteger]))
 
-(def scopus-api-key "26d73caa33ea88eb113539ac40678a4b")
-(def scopus-base-url "https://api.elsevier.com/content/search/scopus")
+(def scopus-api-key  (or (System/getenv "SCOPUS_API_KEY")
+                         (throw (ex-info "No API key" {}))))
+
+(def scopus-base-url (or (System/getenv "SCOPUS_BASE_URL")
+                         (throw (ex-info "No Base URL" {}))))
 
 (comment (def resp (->> (get-in (http/get scopus-base-url
                                           {:query-params {"query" ["giant shrimp" "oceans"]
